@@ -182,21 +182,22 @@ func udpMain(addr string, comm chan bool) {
 	return
 }
 
-func udpHandle(conn *net.UDPConn, remoteAddr *net.Addr, reqBuf *bytes.Buffer) {
-	log.Printf("Request: %#v\n", reqBuf.Bytes())
-	request, err := NewDnsMessage(reqBuf)
+func udpHandle(conn *net.UDPConn, remoteAddr *net.Addr, requestBuffer *bytes.Buffer) {
+	log.Printf("Request: %#v\n", requestBuffer.Bytes())
+	request, err := NewDnsMessage(requestBuffer)
 	if err != nil {
 		log.Fatal(err)
 	}
 	log.Printf("Request Struct: %#v\n", request)
 
+	// create response
 	var response = request
 
+	// output response
 	responseBuffer, err := response.Pack()
 	if err != nil {
 		log.Fatal(err)
 	}
-
 	_, err = conn.WriteTo(responseBuffer.Bytes(), *remoteAddr)
 	if err != nil {
 		log.Fatal(err)
