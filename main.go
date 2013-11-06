@@ -6,9 +6,8 @@ import (
 	"log"
 	"net"
 	"os"
+	"strings"
 )
-
-var ()
 
 type any interface{}
 
@@ -51,6 +50,26 @@ func readUint16(buf *bytes.Buffer) (i uint16, err error) {
 	return
 }
 
+func writeUint16(buf *bytes.Buffer, i uint16) (err error) {
+	uint16bytes := make([]byte, 2)
+	binary.BigEndian.PutUint16(uint16bytes, i)
+	n, err := buf.Write(uint16bytes)
+	if err != nil && n != 2 {
+		log.Fatal("write at wrong length")
+	}
+	return err
+}
+
+func writeUint32(buf *bytes.Buffer, i uint32) (err error) {
+	uint32bytes := make([]byte, 4)
+	binary.BigEndian.PutUint32(uint32bytes, i)
+	n, err := buf.Write(uint32bytes)
+	if err != nil && n != 2 {
+		log.Fatal("write at wrong length")
+	}
+	return err
+}
+
 // construct dnsMessage
 func NewDnsMessage(data *bytes.Buffer) (msg *dnsMessage, err error) {
 	msg = &dnsMessage{}
@@ -80,6 +99,10 @@ func (msg *dnsMessage) Unpack(data *bytes.Buffer) (err error) {
 			}
 			if labelsize == 0 {
 				break
+			}
+			if labelsize&0xC0 == 0xC0 {
+				// 上位2bitが1のとき
+				log.Fatal("not implemented yet: label as pointer")
 			}
 
 			// read domain name
@@ -125,12 +148,68 @@ func (msg *dnsMessage) Unpack(data *bytes.Buffer) (err error) {
 // serialize
 func (msg *dnsMessage) Pack() (data *bytes.Buffer, err error) {
 	data = bytes.NewBuffer([]byte{})
+
+	// Header
 	err = binary.Write(data, binary.BigEndian, &msg.Header)
 	if err != nil {
 		return
 	}
 
+	// Question
+	for i := 0; i < len(msg.Question); i++ {
+		// Pack QNAME
+		labels := strings.Split(msg.Question[i].Qname, ".")
+		for _, label := range labels {
+			labelsize := len(label)
+			err := data.WriteByte(byte(labelsize))
+			if err != nil {
+				log.Fatal(err)
+			}
+			n, err := data.WriteString(label)
+			if err != nil || n != labelsize {
+				log.Fatal(err)
+			}
+		}
+		// Pack QTYPE
+		writeUint16(data, msg.Question[i].Qtype)
+		// Pack QCLASS
+		writeUint16(data, msg.Question[i].Qclass)
+	}
+
+	// Answer
+	for _, rr := range msg.Answer {
+		// Pack RR of Answer
+		packRR(data, &rr)
+	}
+	// Authority
+	// Additional
+
 	return
+}
+
+func packDomainName(buf *bytes.Buffer, name *string) {
+	labels := strings.Split(*name, ".")
+	log.Printf("packDomainName labels: %#v\n", labels)
+	for _, label := range labels {
+		labelsize := len(label)
+		err := buf.WriteByte(byte(labelsize))
+		if err != nil {
+			log.Fatal(err)
+		}
+		n, err := buf.WriteString(label)
+		if err != nil || n != labelsize {
+			log.Fatal(err)
+		}
+	}
+}
+
+func packRR(buf *bytes.Buffer, rr *dnsRR) {
+	packDomainName(buf, &rr.Name)
+	writeUint16(buf, rr.Type)
+	writeUint16(buf, rr.Class)
+	writeUint32(buf, rr.Ttl)
+	writeUint16(buf, rr.Rdlength)
+	buf.WriteString(rr.Rdata)
 }
 
 func main() {
@@ -193,10 +272,18 @@ func udpHandle(conn *net.UDPConn, remoteAddr *net.Addr, requestBuffer *bytes.Buf
 	// create response
 	var response = request
 
-	// write Answer
+	// setup Header Section
+	var bitsbytes = []byte{0x81, 0x80}[:]
+	response.Header.Bits = binary.BigEndian.Uint16(bitsbytes)
+	response.Header.Qdcount = 1
+	response.Header.Ancount = 1
+
+	// setup Answer Section
 	response.Answer = make([]dnsRR, 1)
-	var namebytes = []byte{0xc0, 0x0c}
-	response.Answer[0].Name = string(namebytes[:])
+	// var namebytes = []byte{0xc0, 0x0c}
+	// response.Answer[0].Name = string(namebytes[:])
+	// TODO: とりあえずQuestionのホスト名を入れている
+	response.Answer[0].Name = response.Question[0].Qname
 	response.Answer[0].Type = response.Question[0].Qtype
 	response.Answer[0].Class = response.Question[0].Qclass
 	var ttlbytes = []byte{0x00, 0x00, 0x00, 0x3c}
@@ -216,6 +303,7 @@ func udpHandle(conn *net.UDPConn, remoteAddr *net.Addr, requestBuffer *bytes.Buf
 		log.Fatal(err)
 	}
 	log.Printf("Response: %#v\n", responseBuffer.Bytes())
+	log.Printf("Response Struct: %#v\n", response)
 }
 
 func tcpMain(addr string, comm chan bool) {
