@@ -193,6 +193,19 @@ func udpHandle(conn *net.UDPConn, remoteAddr *net.Addr, requestBuffer *bytes.Buf
 	// create response
 	var response = request
 
+	// write Answer
+	response.Answer = make([]dnsRR, 1)
+	var namebytes = []byte{0xc0, 0x0c}
+	response.Answer[0].Name = string(namebytes[:])
+	response.Answer[0].Type = response.Question[0].Qtype
+	response.Answer[0].Class = response.Question[0].Qclass
+	var ttlbytes = []byte{0x00, 0x00, 0x00, 0x3c}
+	response.Answer[0].Ttl = binary.BigEndian.Uint32(ttlbytes)
+	var rdlengthbytes = []byte{0x00, 0x04}
+	response.Answer[0].Rdlength = binary.BigEndian.Uint16(rdlengthbytes)
+	var rdatabytes = []byte{0x08, 0x08, 0x08, 0x08}
+	response.Answer[0].Rdata = string(rdatabytes)
+
 	// output response
 	responseBuffer, err := response.Pack()
 	if err != nil {
