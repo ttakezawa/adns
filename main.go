@@ -12,7 +12,7 @@ import (
 type any interface{}
 
 type dnsMessage struct {
-	Header     dnsHeader
+	dnsHeader
 	Question   []dnsQuestion
 	Answer     []dnsRR
 	Authority  []dnsRR
@@ -78,7 +78,7 @@ func NewDnsMessage(data *bytes.Buffer) (msg *dnsMessage, err error) {
 }
 func (msg *dnsMessage) Unpack(data *bytes.Buffer) (err error) {
 	// unpack dnsHeader
-	err = binary.Read(data, binary.BigEndian, &msg.Header)
+	err = binary.Read(data, binary.BigEndian, &msg.dnsHeader)
 	if err != nil {
 		return
 	}
@@ -87,9 +87,9 @@ func (msg *dnsMessage) Unpack(data *bytes.Buffer) (err error) {
 	// log.Printf("label:%#v err:%#v\n", label, err)
 
 	// unpack Question
-	msg.Question = make([]dnsQuestion, msg.Header.Qdcount)
+	msg.Question = make([]dnsQuestion, msg.Qdcount)
 
-	for i := uint16(0); i < msg.Header.Qdcount; i++ {
+	for i := uint16(0); i < msg.Qdcount; i++ {
 		name := ""
 		for {
 			// read labelsize
@@ -128,17 +128,17 @@ func (msg *dnsMessage) Unpack(data *bytes.Buffer) (err error) {
 	}
 
 	// unpack Answer
-	if msg.Header.Ancount > 0 {
+	if msg.Ancount > 0 {
 		log.Fatal("Parser Answer Section: not implemeted yet")
 	}
 
 	// unpack Authoriy
-	if msg.Header.Nscount > 0 {
+	if msg.Nscount > 0 {
 		log.Fatal("Parser Authority Section: not implemeted yet")
 	}
 
 	// unpack Additional
-	if msg.Header.Arcount > 0 {
+	if msg.Arcount > 0 {
 		log.Fatal("Parser Additional Section: not implemeted yet")
 	}
 
@@ -150,7 +150,7 @@ func (msg *dnsMessage) Pack() (data *bytes.Buffer, err error) {
 	data = bytes.NewBuffer([]byte{})
 
 	// Header
-	err = binary.Write(data, binary.BigEndian, &msg.Header)
+	err = binary.Write(data, binary.BigEndian, &msg.dnsHeader)
 	if err != nil {
 		return
 	}
@@ -274,9 +274,9 @@ func udpHandle(conn *net.UDPConn, remoteAddr *net.Addr, requestBuffer *bytes.Buf
 
 	// setup Header Section
 	var bitsbytes = []byte{0x81, 0x80}[:]
-	response.Header.Bits = binary.BigEndian.Uint16(bitsbytes)
-	response.Header.Qdcount = 1
-	response.Header.Ancount = 1
+	response.Bits = binary.BigEndian.Uint16(bitsbytes)
+	response.Qdcount = 1
+	response.Ancount = 1
 
 	// setup Answer Section
 	response.Answer = make([]dnsRR, 1)
