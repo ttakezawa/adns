@@ -3,7 +3,6 @@ package main
 import (
 	"flag"
 	"fmt"
-	"log"
 	"os"
 )
 
@@ -13,6 +12,8 @@ func main() {
 		isAuthoritative = flag.Bool("authoritative", false, "Authoritative Server")
 		tcpFd           = flag.Int("tcpfd", -1, "TCP File Discriptor")
 		udpFd           = flag.Int("udpfd", -1, "UDP File Discriptor")
+		tcp             = flag.Int("tcp", -1, "TCP")
+		udp             = flag.Int("udp", -1, "UDP")
 	)
 
 	flag.Parse()
@@ -28,11 +29,13 @@ func main() {
 	}
 
 	var err error
-	if *isRecursive {
-		// err = adns.RecursiveMain(udpFd, tcpFd)
-	}
-	if *isAuthoritative {
-		err = authoritativeMain(*udpFd, *tcpFd)
+	switch {
+	case *isRecursive:
+		// err = recursiveMain(*udpFd, *tcpFd, *udp, *tcp)
+	case *isAuthoritative:
+		err = authoritativeMain(*udpFd, *tcpFd, *udp, *tcp)
+	default:
+		panic("must not come here")
 	}
 
 	if err != nil {
@@ -40,5 +43,5 @@ func main() {
 		os.Exit(1)
 	}
 
-	log.Println("exited")
+	fmt.Println("Main Goroutine exit")
 }
