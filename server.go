@@ -81,6 +81,15 @@ func unpackWalker(walker Walker, msg []byte, off int) (off1 int, ok bool) {
 			}
 			*fv = uint16(msg[off]<<8) | uint16(msg[off+1])
 			off += 2
+		case *uint32:
+			if off+4 > len(msg) {
+				return false
+			}
+			*fv = uint32(msg[off]<<24) |
+				uint32(msg[off+1]<<16) |
+				uint32(msg[off+2]<<8) |
+				uint32(msg[off+3])
+			off += 4
 		case *string:
 			var s string
 			switch tag {
@@ -190,7 +199,7 @@ func (dns *dnsMessage) Unpack(msg []byte) (err error) {
 	}
 	dns.dnsHeader.initWithData(headerData)
 
-	// Rest
+	// Records
 	dns.Question = make([]dnsQuestion, headerData.Qdcount)
 	dns.Answer = make([]dnsRR, headerData.Ancount)
 	dns.Authority = make([]dnsRR, headerData.Nscount)
@@ -202,25 +211,25 @@ func (dns *dnsMessage) Unpack(msg []byte) (err error) {
 			return
 		}
 	}
-	// TODO NOW implement
-	// for i := 0; i < len(dns.Answer); i++ {
-	// 	dns.Answer[i], off, ok = unpackRR(msg, off)
-	// 	if err != nil {
-	// 		return
-	// 	}
-	// }
-	// for i := 0; i < len(dns.Ns); i++ {
-	// 	dns.Ns[i], off, ok = unpackRR(msg, off)
-	// 	if err != nil {
-	// 		return
-	// 	}
-	// }
-	// for i := 0; i < len(dns.Extra); i++ {
-	// 	dns.Extra[i], off, ok = unpackRR(msg, off)
-	// 	if err != nil {
-	// 		return
-	// 	}
-	// }
+
+	for i := 0; i < len(dns.Answer); i++ {
+		off, ok = dns.Answer[i].Unpack(msg, off)
+		if err != nil {
+			return
+		}
+	}
+	for i := 0; i < len(dns.Authority); i++ {
+		off, ok = dns.Authority[i].Unpack(msg, off)
+		if err != nil {
+			return
+		}
+	}
+	for i := 0; i < len(dns.Additional); i++ {
+		off, ok = dns.Additional[i].Unpack(msg, off)
+		if err != nil {
+			return
+		}
+	}
 
 	return nil
 }
@@ -309,12 +318,40 @@ func (q *dnsQuestion) Walk(f func(field interface{}, name, tag string) bool) boo
 }
 
 type dnsRR struct {
+	dnsRRHeader
+	Rdata string
+}
+
+type dnsRRHeader struct {
 	Name     string
 	Type     uint16
 	Class    uint16
 	Ttl      uint32
 	Rdlength uint16
-	Rdata    string
+}
+
+func (rr *dnsRRHeader) Walk(f func(field interface{}, name, tag string) bool) bool {
+	return f(&rr.Name, "Name", "domain") &&
+		f(&rr.Type, "Type", "") &&
+		f(&rr.Class, "Class", "") &&
+		f(&rr.Ttl, "Ttl", "") &&
+		f(&rr.Rdlength, "Rdlength", "")
+}
+
+func (rr *dnsRR) Unpack(msg []byte, off int) (off1 int, ok bool) {
+	if off, ok = unpackWalker(&rr.dnsRRHeader, msg, off); !ok {
+		log.Print("failed: unpack RR Header")
+		return off, false
+	}
+	length := int(rr.Rdlength)
+	if off+length > len(msg) {
+		log.Print("insufficient data")
+		return off, false
+	}
+	rr.Rdata = string(msg[off : off+length])
+	off += length
+
+	return off, true
 }
 
 func authoritativeHandleUDP(conn *net.UDPConn, remoteAddr *net.Addr, reqBytes []byte) {
