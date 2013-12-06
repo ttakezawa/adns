@@ -5,7 +5,6 @@ import (
 	"log"
 	"net"
 	"os"
-	"runtime"
 )
 
 func authoritativeMain(udpFd int, tcpFd int, udp int, tcp int) error {
@@ -67,6 +66,98 @@ type Walker interface {
 	Walk(f func(field interface{}, name, tag string) (ok bool)) (ok bool)
 }
 
+func packWalker(walker Walker, msg []byte, off int) (off1 int, ok bool) {
+	ok = walker.Walk(func(field interface{}, name, tag string) bool {
+		switch fv := field.(type) {
+		default:
+			log.Print("unknown packing type")
+			return false
+		case *uint16:
+			i := *fv
+			if off+2 > len(msg) {
+				return false
+			}
+			msg[off] = byte(i >> 8)
+			msg[off+1] = byte(i)
+			off += 2
+		case *uint32:
+			i := *fv
+			if off+4 > len(msg) {
+				return false
+			}
+			msg[off] = byte(i >> 24)
+			msg[off+1] = byte(i >> 16)
+			msg[off+2] = byte(i >> 8)
+			msg[off+3] = byte(i)
+			off += 4
+		case *string:
+			s := *fv
+			switch tag {
+			default:
+				log.Print("unknown string tag", tag)
+				return false
+			case "domain":
+				off, ok = packDomainName(s, msg, off)
+				if !ok {
+					return false
+				}
+			case "":
+				// Counted string: 1 byte length.
+				if len(s) > 255 || off+1+len(s) > len(msg) {
+					return false
+				}
+				msg[off] = byte(len(s))
+				off++
+				off += copy(msg[off:], s)
+			}
+		}
+		return true
+	})
+	if !ok {
+		return len(msg), false
+	}
+	return off, true
+}
+
+// Pack a domain name s into msg[off:].
+// Domain names are a sequence of counted strings
+// split at the dots.  They end with a zero-length string.
+func packDomainName(s string, msg []byte, off int) (off1 int, ok bool) {
+	// Add trailing dot to canonicalize name.
+	if n := len(s); n == 0 || s[n-1] != '.' {
+		s += "."
+	}
+
+	// Each dot ends a segment of the name.
+	// We trade each dot byte for a length byte.
+	// There is also a trailing zero.
+	// Check that we have all the space we need.
+	tot := len(s) + 1
+	if off+tot > len(msg) {
+		return len(msg), false
+	}
+
+	// Emit sequence of counted strings, chopping at dots.
+	begin := 0
+	for i := 0; i < len(s); i++ {
+		if s[i] == '.' {
+			if i-begin >= 1<<6 { // top two bits of length must be clear
+				return len(msg), false
+			}
+			msg[off] = byte(i - begin)
+			off++
+			for j := begin; j < i; j++ {
+				msg[off] = s[j]
+				off++
+			}
+			begin = i + 1
+		}
+	}
+	msg[off] = 0
+	off++
+	return off, true
+}
+
 // deserialize
 func unpackWalker(walker Walker, msg []byte, off int) (off1 int, ok bool) {
 	ok = walker.Walk(func(field interface{}, name, tag string) bool {
@@ -79,15 +170,15 @@ func unpackWalker(walker Walker, msg []byte, off int) (off1 int, ok bool) {
 			if off+2 > len(msg) {
 				return false
 			}
-			*fv = uint16(msg[off]<<8) | uint16(msg[off+1])
+			*fv = uint16(msg[off])<<8 | uint16(msg[off+1])
 			off += 2
 		case *uint32:
 			if off+4 > len(msg) {
 				return false
 			}
-			*fv = uint32(msg[off]<<24) |
-				uint32(msg[off+1]<<16) |
-				uint32(msg[off+2]<<8) |
+			*fv = uint32(msg[off])<<24 |
+				uint32(msg[off+1])<<16 |
+				uint32(msg[off+2])<<8 |
 				uint32(msg[off+3])
 			off += 4
 		case *string:
@@ -234,6 +325,79 @@ func (dns *dnsMessage) Unpack(msg []byte) (err error) {
 	return nil
 }
 
+// packLen returns the message length when in UNcompressed wire format.
+func (dns *dnsMessage) packlen() int {
+	// Message header is always 12 bytes
+	l := 12
+	for i := 0; i < len(dns.Question); i++ {
+		l += dns.Question[i].len()
+	}
+	for i := 0; i < len(dns.Answer); i++ {
+		l += dns.Answer[i].len()
+	}
+	for i := 0; i < len(dns.Authority); i++ {
+		l += dns.Authority[i].len()
+	}
+	for i := 0; i < len(dns.Additional); i++ {
+		l += dns.Additional[i].len()
+	}
+	return l
+}
+
+func (dns *dnsMessage) Pack() (msg []byte, ok bool) {
+
+	// Prepare DNS Header
+	var headerData dnsHeaderData
+	headerData.Id = dns.Id
+	headerData.Bits = uint16(dns.Opcode)<<11 | uint16(dns.Rcode)
+	if dns.RA {
+		headerData.Bits |= _RA
+	}
+	if dns.RD {
+		headerData.Bits |= _RD
+	}
+	if dns.TC {
+		headerData.Bits |= _TC
+	}
+	if dns.AA {
+		headerData.Bits |= _AA
+	}
+	if dns.QR {
+		headerData.Bits |= _QR
+	}
+	headerData.Qdcount = uint16(len(dns.Question))
+	headerData.Ancount = uint16(len(dns.Answer))
+	headerData.Nscount = uint16(len(dns.Authority))
+	headerData.Arcount = uint16(len(dns.Additional))
+
+	msg = make([]byte, dns.packlen()+1)
+	off := 0
+
+	off, ok = packWalker(&headerData, msg, off)
+	for i := 0; i < len(dns.Question); i++ {
+		if off, ok = packWalker(&dns.Question[i], msg, off); !ok {
+			return nil, false
+		}
+	}
+	for i := 0; i < len(dns.Answer); i++ {
+		if off, ok = packWalker(&dns.Answer[i], msg, off); !ok {
+			return nil, false
+		}
+	}
+	for i := 0; i < len(dns.Authority); i++ {
+		if off, ok = packWalker(&dns.Authority[i], msg, off); !ok {
+			return nil, false
+		}
+	}
+	for i := 0; i < len(dns.Additional); i++ {
+		if off, ok = packWalker(&dns.Additional[i], msg, off); !ok {
+			return nil, false
+		}
+	}
+
+	return msg[0:off], true
+}
+
 type dnsHeader struct {
 	Id     uint16
 	QR     bool // Query or Response
@@ -268,7 +432,7 @@ func (header *dnsHeader) initWithData(headerData *dnsHeaderData) {
 	header.Rcode = int(bits & 0xF)
 }
 
-// Use like Plain Old Data
+// Use like Plain Old Data (wire-like definition)
 type dnsHeaderData struct {
 	Id                                 uint16
 	Bits                               uint16
@@ -317,9 +481,17 @@ func (q *dnsQuestion) Walk(f func(field interface{}, name, tag string) bool) boo
 		f(&q.Qclass, "Qclass", "")
 }
 
+func (q *dnsQuestion) len() int {
+	return len(q.Qname) + 1 + 2 + 2
+}
+
 type dnsRR struct {
 	dnsRRHeader
 	Rdata string
+}
+
+func (rr *dnsRR) len() int {
+	return rr.dnsRRHeader.len() + int(rr.dnsRRHeader.Rdlength)
 }
 
 type dnsRRHeader struct {
@@ -328,6 +500,10 @@ type dnsRRHeader struct {
 	Class    uint16
 	Ttl      uint32
 	Rdlength uint16
+}
+
+func (h *dnsRRHeader) len() int {
+	return len(h.Name) + 1 + 2 + 2 + 4 + 2
 }
 
 func (rr *dnsRRHeader) Walk(f func(field interface{}, name, tag string) bool) bool {
@@ -364,12 +540,22 @@ func authoritativeHandleUDP(conn *net.UDPConn, remoteAddr *net.Addr, reqBytes []
 		return
 	}
 
-	log.Printf("reqMsg: %#v", reqMsg)
+	log.Printf("Request Msg: %#v", reqMsg)
 
-	n, err := conn.WriteTo(reqBytes, *remoteAddr)
+	// TODO impl here
+	resMsg := reqMsg
+
+	log.Printf("Response Msg: %#v", resMsg)
+
+	resBytes, ok := resMsg.Pack()
+	if !ok {
+		log.Print("failed pack response")
+		return
+	}
+	n, err := conn.WriteTo(resBytes, *remoteAddr)
 	if err != nil {
 		log.Print(err)
-		runtime.Goexit()
+		return
 	}
 	log.Printf("Sent: %d bytes\n", n)
 }
