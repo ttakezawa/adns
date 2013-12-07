@@ -543,7 +543,7 @@ func authoritativeHandleUDP(conn *net.UDPConn, remoteAddr *net.Addr, reqBytes []
 	log.Printf("Request Msg: %#v", reqMsg)
 
 	// TODO impl here
-	resMsg := reqMsg
+	resMsg := serve(reqMsg)
 
 	log.Printf("Response Msg: %#v", resMsg)
 
@@ -558,4 +558,9 @@ func authoritativeHandleUDP(conn *net.UDPConn, remoteAddr *net.Addr, reqBytes []
 		return
 	}
 	log.Printf("Sent: %d bytes\n", n)
+}
+
+func serve(req *dnsMessage) *dnsMessage {
+	res := *req
+	return &res
 }
