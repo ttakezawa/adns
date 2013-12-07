@@ -541,7 +541,6 @@ func authoritativeHandleUDP(conn *net.UDPConn, remoteAddr *net.Addr, reqBytes []
 
 	log.Printf("Request Msg: %#v", reqMsg)
 
-	// TODO impl here
 	resMsg := serve(reqMsg)
 
 	log.Printf("Response Msg: %#v", resMsg)
@@ -561,5 +560,27 @@ func authoritativeHandleUDP(conn *net.UDPConn, remoteAddr *net.Addr, reqBytes []
 
 func serve(req *dnsMessage) *dnsMessage {
 	res := *req
+
+	// とにかく twitter.com. A 8.8.8.8 というAnswerを返してみる
+
+	res.QR = true
+	res.Opcode = 0
+	res.AA = true
+	res.TC = false
+	// res.RD =
+	res.RA = false
+	res.Rcode = 0
+
+	answer := new(dnsRR)
+	answer.dnsRRHeader.Name = "twitter.com."
+	answer.dnsRRHeader.Type = 1  // Type: Aレコード
+	answer.dnsRRHeader.Class = 1 // Class: IN
+	answer.dnsRRHeader.Ttl = 60  // 60秒
+
+	answer.Rdata = []byte{0x08, 0x08, 0x08, 0x08}
+	answer.dnsRRHeader.Rdlength = 4
+
+	res.Answer = append(res.Answer, *answer)
+
 	return &res
 }
