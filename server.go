@@ -90,6 +90,9 @@ func packWalker(walker Walker, msg []byte, off int) (off1 int, ok bool) {
 			msg[off+2] = byte(i >> 8)
 			msg[off+3] = byte(i)
 			off += 4
+		case *[]byte:
+			bytes := *fv
+			off += copy(msg[off:], bytes)
 		case *string:
 			s := *fv
 			switch tag {
@@ -101,14 +104,6 @@ func packWalker(walker Walker, msg []byte, off int) (off1 int, ok bool) {
 				if !ok {
 					return false
 				}
-			case "":
-				// Counted string: 1 byte length.
-				if len(s) > 255 || off+1+len(s) > len(msg) {
-					return false
-				}
-				msg[off] = byte(len(s))
-				off++
-				off += copy(msg[off:], s)
 			}
 		}
 		return true
@@ -487,11 +482,15 @@ func (q *dnsQuestion) len() int {
 
 type dnsRR struct {
 	dnsRRHeader
-	Rdata string
+	Rdata []byte
 }
 
 func (rr *dnsRR) len() int {
 	return rr.dnsRRHeader.len() + int(rr.dnsRRHeader.Rdlength)
+}
+
+func (rr *dnsRR) Walk(f func(field interface{}, name, tag string) bool) bool {
+	return rr.dnsRRHeader.Walk(f) && f(&rr.Rdata, "Rdata", "")
 }
 
 type dnsRRHeader struct {
@@ -502,16 +501,16 @@ type dnsRRHeader struct {
 	Rdlength uint16
 }
 
-func (h *dnsRRHeader) len() int {
-	return len(h.Name) + 1 + 2 + 2 + 4 + 2
-}
-
 func (rr *dnsRRHeader) Walk(f func(field interface{}, name, tag string) bool) bool {
 	return f(&rr.Name, "Name", "domain") &&
 		f(&rr.Type, "Type", "") &&
 		f(&rr.Class, "Class", "") &&
 		f(&rr.Ttl, "Ttl", "") &&
 		f(&rr.Rdlength, "Rdlength", "")
+}
+
+func (h *dnsRRHeader) len() int {
+	return len(h.Name) + 1 + 2 + 2 + 4 + 2
 }
 
 func (rr *dnsRR) Unpack(msg []byte, off int) (off1 int, ok bool) {
@@ -524,7 +523,7 @@ func (rr *dnsRR) Unpack(msg []byte, off int) (off1 int, ok bool) {
 		log.Print("insufficient data")
 		return off, false
 	}
-	rr.Rdata = string(msg[off : off+length])
+	rr.Rdata = msg[off : off+length]
 	off += length
 
 	return off, true
