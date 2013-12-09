@@ -530,7 +530,7 @@ func (rr *dnsRR) Unpack(msg []byte, off int) (off1 int, ok bool) {
 }
 
 func authoritativeHandleUDP(conn *net.UDPConn, remoteAddr *net.Addr, reqBytes []byte) {
-	log.Printf("Received: %d bytes\n", len(reqBytes))
+	// log.Printf("Received: %d bytes\n", len(reqBytes))
 
 	reqMsg := new(dnsMessage)
 	if err := reqMsg.Unpack(reqBytes); err != nil {
@@ -539,23 +539,23 @@ func authoritativeHandleUDP(conn *net.UDPConn, remoteAddr *net.Addr, reqBytes []
 		return
 	}
 
-	log.Printf("Request Msg: %#v", reqMsg)
+	// log.Printf("Request Msg: %#v", reqMsg)
 
 	resMsg := serve(reqMsg)
 
-	log.Printf("Response Msg: %#v", resMsg)
+	// log.Printf("Response Msg: %#v", resMsg)
 
 	resBytes, ok := resMsg.Pack()
 	if !ok {
 		log.Print("failed pack response")
 		return
 	}
-	n, err := conn.WriteTo(resBytes, *remoteAddr)
+	_, err := conn.WriteTo(resBytes, *remoteAddr)
 	if err != nil {
 		log.Print(err)
 		return
 	}
-	log.Printf("Sent: %d bytes\n", n)
+	// log.Printf("Sent: %d bytes\n", n)
 }
 
 func serve(req *dnsMessage) *dnsMessage {

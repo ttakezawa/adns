@@ -4,6 +4,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
+        "runtime"
 )
 
 func main() {
@@ -45,3 +46,8 @@ func main() {
 
 	fmt.Println("Main Goroutine exit")
 }
+
+func init() {
+        runtime.GOMAXPROCS(runtime.NumCPU())
+}
+

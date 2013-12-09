@@ -6,6 +6,7 @@ import (
 	"log"
 	"net"
 	"os"
+	"runtime"
 	"strings"
 )
 
@@ -189,7 +190,7 @@ func (msg *dnsMessage) Pack() (data *bytes.Buffer, err error) {
 
 func packDomainName(buf *bytes.Buffer, name *string) {
 	labels := strings.Split(*name, ".")
-	log.Printf("packDomainName labels: %#v\n", labels)
+	// log.Printf("packDomainName labels: %#v\n", labels)
 	for _, label := range labels {
 		labelsize := len(label)
 		err := buf.WriteByte(byte(labelsize))
@@ -262,12 +263,12 @@ func udpMain(addr string, comm chan bool) {
 }
 
 func udpHandle(conn *net.UDPConn, remoteAddr *net.Addr, requestBuffer *bytes.Buffer) {
-	log.Printf("Request: %#v\n", requestBuffer.Bytes())
+	// log.Printf("Request: %#v\n", requestBuffer.Bytes())
 	request, err := NewDnsMessage(requestBuffer)
 	if err != nil {
 		log.Fatal(err)
 	}
-	log.Printf("Request Struct: %#v\n", request)
+	// log.Printf("Request Struct: %#v\n", request)
 
 	// create response
 	var response = request
@@ -302,8 +303,8 @@ func udpHandle(conn *net.UDPConn, remoteAddr *net.Addr, requestBuffer *bytes.Buf
 	if err != nil {
 		log.Fatal(err)
 	}
-	log.Printf("Response: %#v\n", responseBuffer.Bytes())
-	log.Printf("Response Struct: %#v\n", response)
+	// log.Printf("Response: %#v\n", responseBuffer.Bytes())
+	// log.Printf("Response Struct: %#v\n", response)
 }
 
 func tcpMain(addr string, comm chan bool) {
@@ -327,4 +328,8 @@ func tcpMain(addr string, comm chan bool) {
 }
 
 func tcpHandle(conn net.Conn) {
+}
+
+func init() {
+        runtime.GOMAXPROCS(runtime.NumCPU())
 }
